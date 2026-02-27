@@ -144,6 +144,7 @@ final class TranslationContext {
 final class _ToStreamTranslator extends Transformer<void> {
   final TranslationContext stream;
   String? defaultTableName;
+  bool defaultTableNameEscaped = false;
   bool isDataQuery;
 
   final int parameterQueryCount;
@@ -169,20 +170,33 @@ final class _ToStreamTranslator extends Transformer<void> {
 
   @override
   AstNode? visitStarResultColumn(StarResultColumn e, void arg) {
-    if (e.tableName == null) {
-      return StarResultColumn(defaultTableName);
+    if (e.tableName != null || defaultTableName == null) {
+      return e;
     }
 
-    return e;
+    final rewritten = StarResultColumn(defaultTableName);
+    setSyntheticStarQualifierEscaped(rewritten, defaultTableNameEscaped);
+    return rewritten;
   }
 
   @override
   AstNode? visitReference(Reference e, void arg) {
-    if (e.entityName == null) {
-      return Reference(columnName: e.columnName, entityName: defaultTableName);
+    if (e.entityName != null || defaultTableName == null) {
+      return e;
     }
 
-    return e;
+    final rewritten = Reference(
+      columnName: e.columnName,
+      entityName: defaultTableName,
+    );
+    setSyntheticReferenceQuoteHint(
+      rewritten,
+      SyntheticReferenceQuoteHint(
+        entityEscaped: defaultTableNameEscaped,
+        columnEscaped: _findTrailingIdentifierToken(e)?.escaped ?? false,
+      ),
+    );
+    return rewritten;
   }
 
   @override
@@ -204,6 +218,7 @@ final class _ToStreamTranslator extends Transformer<void> {
     if (parameterQueryCount > 0 && e.from is TableReference) {
       final tableReference = e.from as TableReference;
       defaultTableName = tableReference.as ?? tableReference.tableName;
+      defaultTableNameEscaped = _defaultTableNameIsEscaped(tableReference);
 
       e.from = JoinClause(
         primary: tableReference,
@@ -225,6 +240,48 @@ final class _ToStreamTranslator extends Transformer<void> {
     }
 
     return super.visitSelectStatement(e, arg);
+  }
+
+  bool _defaultTableNameIsEscaped(TableReference reference) {
+    final identifierTokens = _collectIdentifierTokens(reference);
+    final expectedTableParts = (reference.schemaName != null ? 1 : 0) + 1;
+
+    if (reference.as != null && identifierTokens.length > expectedTableParts) {
+      return identifierTokens.last.escaped;
+    }
+
+    if (reference.tableNameToken case IdentifierToken(:final escaped)) {
+      return escaped;
+    }
+
+    if (identifierTokens.length >= expectedTableParts) {
+      final tableIndex = reference.schemaName != null ? 1 : 0;
+      return identifierTokens[tableIndex].escaped;
+    }
+
+    return false;
+  }
+
+  static List<IdentifierToken> _collectIdentifierTokens(AstNode node) {
+    final tokens = <IdentifierToken>[];
+    var token = node.first;
+    while (token != null) {
+      if (token is IdentifierToken) tokens.add(token);
+      if (identical(token, node.last)) break;
+      token = token.next;
+    }
+    return tokens;
+  }
+
+  static IdentifierToken? _findTrailingIdentifierToken(AstNode node) {
+    var token = node.last;
+    while (token != null) {
+      if (token case IdentifierToken()) {
+        return token;
+      }
+      token = token.previous;
+    }
+    return null;
   }
 
   @override

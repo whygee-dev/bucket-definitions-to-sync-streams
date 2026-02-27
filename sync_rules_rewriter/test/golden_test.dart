@@ -227,7 +227,7 @@ streams:
     );
   });
 
-  test('camelCase identifiers are quoted for PostgreSQL case preservation', () {
+  test('unquoted camelCase identifiers are not auto-quoted', () {
     expect(
       syncRulesToSyncStreams('''
 bucket_definitions:
@@ -246,7 +246,7 @@ streams:
   migrated_to_streams:
     auto_subscribe: true
     queries:
-      - SELECT * FROM "userLists" WHERE "userLists"."ownerId" = auth.user_id()
+      - SELECT * FROM userLists WHERE userLists.ownerId = auth.user_id()
 ''',
     );
   });
@@ -317,6 +317,246 @@ streams:
     auto_subscribe: true
     queries:
       - SELECT * FROM "user-lists"
+''',
+    );
+  });
+
+  test('mixed quoting: only explicitly quoted parts are preserved', () {
+    expect(
+      syncRulesToSyncStreams('''
+bucket_definitions:
+  a:
+    data:
+      - SELECT "userLists".ownerId FROM "userLists"
+'''),
+      '''
+config:
+  edition: 3
+streams:
+  # This Sync Stream has been translated from bucket definitions. There may be more efficient ways to express these queries.
+  # You can add additional queries to this list if you need them.
+  # For details, see the documentation: https://docs.powersync.com/sync/streams/overview
+  migrated_to_streams:
+    auto_subscribe: true
+    queries:
+      - SELECT "userLists".ownerId FROM "userLists"
+''',
+    );
+  });
+
+  test('quoted entity with keyword column name preserves quotes', () {
+    expect(
+      syncRulesToSyncStreams('''
+bucket_definitions:
+  a:
+    data:
+      - SELECT "userLists"."order" FROM "userLists"
+'''),
+      '''
+config:
+  edition: 3
+streams:
+  # This Sync Stream has been translated from bucket definitions. There may be more efficient ways to express these queries.
+  # You can add additional queries to this list if you need them.
+  # For details, see the documentation: https://docs.powersync.com/sync/streams/overview
+  migrated_to_streams:
+    auto_subscribe: true
+    queries:
+      - SELECT "userLists"."order" FROM "userLists"
+''',
+    );
+  });
+
+  test('schema-qualified references preserve explicit quotes', () {
+    expect(
+      syncRulesToSyncStreams('''
+bucket_definitions:
+  a:
+    data:
+      - SELECT "other"."userLists"."ownerId" FROM "other"."userLists"
+'''),
+      '''
+config:
+  edition: 3
+streams:
+  # This Sync Stream has been translated from bucket definitions. There may be more efficient ways to express these queries.
+  # You can add additional queries to this list if you need them.
+  # For details, see the documentation: https://docs.powersync.com/sync/streams/overview
+  migrated_to_streams:
+    auto_subscribe: true
+    queries:
+      - SELECT "other"."userLists"."ownerId" FROM "other"."userLists"
+''',
+    );
+  });
+
+  test('quoted schema in table reference is preserved when alias is present', () {
+    expect(
+      syncRulesToSyncStreams('''
+bucket_definitions:
+  a:
+    data:
+      - SELECT "MySchema"."MyTable".id FROM "MySchema"."MyTable" t
+'''),
+      '''
+config:
+  edition: 3
+streams:
+  # This Sync Stream has been translated from bucket definitions. There may be more efficient ways to express these queries.
+  # You can add additional queries to this list if you need them.
+  # For details, see the documentation: https://docs.powersync.com/sync/streams/overview
+  migrated_to_streams:
+    auto_subscribe: true
+    queries:
+      - SELECT "MySchema"."MyTable".id FROM "MySchema"."MyTable" AS t
+''',
+    );
+  });
+
+  test('explicitly quoted table aliases are preserved', () {
+    expect(
+      syncRulesToSyncStreams('''
+bucket_definitions:
+  a:
+    data:
+      - SELECT "BarBaz".id FROM items AS "BarBaz"
+'''),
+      '''
+config:
+  edition: 3
+streams:
+  # This Sync Stream has been translated from bucket definitions. There may be more efficient ways to express these queries.
+  # You can add additional queries to this list if you need them.
+  # For details, see the documentation: https://docs.powersync.com/sync/streams/overview
+  migrated_to_streams:
+    auto_subscribe: true
+    queries:
+      - SELECT "BarBaz".id FROM items AS "BarBaz"
+''',
+    );
+  });
+
+  test('quoted select aliases are preserved', () {
+    expect(
+      syncRulesToSyncStreams('''
+bucket_definitions:
+  a:
+    data:
+      - SELECT id AS "CreatedAt" FROM lists
+'''),
+      '''
+config:
+  edition: 3
+streams:
+  # This Sync Stream has been translated from bucket definitions. There may be more efficient ways to express these queries.
+  # You can add additional queries to this list if you need them.
+  # For details, see the documentation: https://docs.powersync.com/sync/streams/overview
+  migrated_to_streams:
+    auto_subscribe: true
+    queries:
+      - SELECT id AS "CreatedAt" FROM lists
+''',
+    );
+  });
+
+  test('quoted unqualified references are preserved', () {
+    expect(
+      syncRulesToSyncStreams('''
+bucket_definitions:
+  a:
+    data:
+      - SELECT "ownerId" FROM lists WHERE "ownerId" = 1
+'''),
+      '''
+config:
+  edition: 3
+streams:
+  # This Sync Stream has been translated from bucket definitions. There may be more efficient ways to express these queries.
+  # You can add additional queries to this list if you need them.
+  # For details, see the documentation: https://docs.powersync.com/sync/streams/overview
+  migrated_to_streams:
+    auto_subscribe: true
+    queries:
+      - SELECT "ownerId" FROM lists WHERE "ownerId" = 1
+''',
+    );
+  });
+
+  test('quoted table qualifier on star column is preserved', () {
+    expect(
+      syncRulesToSyncStreams('''
+bucket_definitions:
+  a:
+    data:
+      - SELECT "BarBaz".* FROM items AS "BarBaz"
+'''),
+      '''
+config:
+  edition: 3
+streams:
+  # This Sync Stream has been translated from bucket definitions. There may be more efficient ways to express these queries.
+  # You can add additional queries to this list if you need them.
+  # For details, see the documentation: https://docs.powersync.com/sync/streams/overview
+  migrated_to_streams:
+    auto_subscribe: true
+    queries:
+      - SELECT "BarBaz".* FROM items AS "BarBaz"
+''',
+    );
+  });
+
+  test(
+      'quoted identifiers remain quoted when default table qualification is injected',
+      () {
+    expect(
+      syncRulesToSyncStreams('''
+bucket_definitions:
+  a:
+    parameters:
+      - SELECT id AS list_id FROM lists
+    data:
+      - SELECT "OwnerId" FROM "Items" AS "BarBaz" WHERE "OwnerId" = bucket.list_id
+'''),
+      '''
+config:
+  edition: 3
+streams:
+  # This Sync Stream has been translated from bucket definitions. There may be more efficient ways to express these queries.
+  # You can add additional queries to this list if you need them.
+  # For details, see the documentation: https://docs.powersync.com/sync/streams/overview
+  migrated_to_streams:
+    auto_subscribe: true
+    with:
+      a_param: SELECT id AS list_id FROM lists
+    queries:
+      - "SELECT \\"BarBaz\\".\\"OwnerId\\" FROM \\"Items\\" AS \\"BarBaz\\",a_param AS bucket WHERE \\"BarBaz\\".\\"OwnerId\\" = bucket.list_id"
+''',
+    );
+  });
+
+  test('quoted alias remains quoted when * qualifier is injected', () {
+    expect(
+      syncRulesToSyncStreams('''
+bucket_definitions:
+  a:
+    parameters:
+      - SELECT id AS list_id FROM lists
+    data:
+      - SELECT * FROM items AS "BarBaz" WHERE id = bucket.list_id
+'''),
+      '''
+config:
+  edition: 3
+streams:
+  # This Sync Stream has been translated from bucket definitions. There may be more efficient ways to express these queries.
+  # You can add additional queries to this list if you need them.
+  # For details, see the documentation: https://docs.powersync.com/sync/streams/overview
+  migrated_to_streams:
+    auto_subscribe: true
+    with:
+      a_param: SELECT id AS list_id FROM lists
+    queries:
+      - "SELECT \\"BarBaz\\".* FROM items AS \\"BarBaz\\",a_param AS bucket WHERE \\"BarBaz\\".id = bucket.list_id"
 ''',
     );
   });
